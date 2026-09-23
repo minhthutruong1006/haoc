@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>하오커뮤니케이션 홈페이지 칼럼 작성기</title>
+<style>
+  :root { --bg:#16181d; --card:#1f232b; --line:#2e3440; --txt:#e6e9ef; --muted:#8b93a3; --pt:#e05548; --ok:#4cc38a; --warn:#e5b94d; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.6 'Malgun Gothic',sans-serif; background:var(--bg); color:var(--txt); }
+  header { display:flex; align-items:center; gap:14px; padding:14px 22px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; } header h1 b { color:var(--pt); }
+  .pill { font-size:12px; color:var(--muted); background:var(--card); border:1px solid var(--line); border-radius:20px; padding:3px 12px; }
+  .pill.ok { color:var(--ok); } .pill.bad { color:var(--pt); }
+  main { max-width:1150px; margin:18px auto; padding:0 22px; }
+  .bar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  button { font:14px 'Malgun Gothic'; padding:9px 16px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--txt); cursor:pointer; }
+  button:hover { border-color:var(--pt); } button:disabled { opacity:.45; cursor:not-allowed; }
+  button.primary { background:var(--pt); border-color:var(--pt); color:#fff; font-weight:bold; }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; margin-bottom:8px; }
+  th,td { padding:10px 12px; text-align:left; border-bottom:1px solid var(--line); font-size:13px; vertical-align:top; }
+  th { color:var(--muted); font-weight:normal; font-size:12px; background:#191c22; }
+  .q { display:block; max-width:520px; }
+  .sub { color:var(--muted); font-size:12px; }
+  .st { font-size:12px; padding:2px 10px; border-radius:12px; background:#242936; }
+  .st.done { color:var(--ok); } .st.fail { color:var(--pt); } .st.run { color:var(--warn); }
+  #logbox { margin-top:14px; background:#0f1115; border:1px solid var(--line); border-radius:10px; padding:12px 14px; height:210px; overflow-y:auto; font:12px/1.7 Consolas,monospace; color:#9aa5b5; white-space:pre-wrap; }
+  .note { color:var(--muted); font-size:12px; margin:8px 0 14px; }
+  h3 { font-size:14px; margin:18px 0 8px; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1><b>HAOC</b> 홈페이지 칼럼 작성기 <span style="color:var(--muted);font-size:12px">홈페이지 5개(정부지원사업·디자인·스튜디오·웹·마케팅) 하루 5편 · 순수 텍스트 + 대표이미지</span></h1>
+  <span class="pill" id="p-claude">claude: ?</span>
+  <span class="pill" id="p-csv">질문CSV: ?</span>
+  <span class="pill" id="p-today">오늘: ?</span>
+  <span class="pill" id="p-job"></span>
+</header>
+<main>
+  <div class="bar">
+    <button onclick="api('/api/refresh-questions')">질문 시트 새로고침</button>
+    <select id="genCount" title="오늘 생성할 건수(사이트 5개)" onchange="tick()"><option value="1">1건</option><option value="2">2건</option><option value="3">3건</option><option value="4">4건</option><option value="5" selected>5건(사이트 5개 전부)</option></select>
+    <button class="primary" onclick="gen()">오늘 생성</button>
+    <button onclick="post(true)">생성분 공개 게시</button>
+    <button onclick="genPost(true)">생성 → 바로 공개게시</button>
+  </div>
+  <div class="note">[오늘 생성] — 슬롯 5개 = 사이트 5개(haoc.co.kr 정부지원사업 / design·studio·web·mkt 센터). 정부지원사업 사이트는 디자인→웹→마케팅 순서로 날마다 회전, 센터 4개는 각자 주제로 하루 1편. 원고는 관리자 폼용 순수 텍스트(.txt)이며 [생성분 공개 게시]를 누르면 haoc.co.kr/admin.html 칼럼 폼에 자동 입력·저장됩니다(첫 게시 때 로그인 창 1회). ★게시 전 '미리보기'로 검토하세요.</div>
+  <div style="background:#191c22;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:6px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+      <b style="color:var(--pt);">Claude 계정 연동</b>
+      <span class="sub">각자 자기 Claude 계정으로 로그인해 사용 — API 키 불필요, 추가 과금 없음.</span>
+      <span style="flex:1"></span>
+      <button style="padding:4px 12px;font-size:12px" onclick="acctRefresh()">🔄 상태 새로고침</button>
+      <button class="primary" style="padding:4px 12px;font-size:12px" onclick="acctAdd()">+ 계정 추가(로그인)</button>
+    </div>
+    <div id="acctlist"></div>
+    <!-- 브라우저 로그인 코드 붙여넣기 박스 -->
+    <div id="codeBox" style="display:none;margin-top:10px;background:#101014;border:1px solid #4a3520;border-radius:9px;padding:12px;">
+      <div class="sub" style="margin-bottom:8px;line-height:1.6;">새 탭에서 <b style="color:var(--txt)">Claude에 로그인</b>하면 화면에 <b style="color:var(--txt)">인증 코드</b>가 표시됩니다. 그 코드를 복사해 아래에 붙여넣고 <b style="color:var(--txt)">연동 완료</b>를 누르세요. <span id="codeFor" style="color:var(--warn)"></span></div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input id="authCode" placeholder="로그인 후 표시된 코드 붙여넣기" style="flex:1;font:14px 'Malgun Gothic';padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--txt);">
+        <button class="primary" style="padding:8px 14px;font-size:13px" onclick="acctSubmitCode()">연동 완료</button>
+        <button style="padding:8px 12px;font-size:13px" onclick="acctReopen()">로그인 페이지 다시 열기</button>
+        <button style="padding:8px 12px;font-size:13px" onclick="acctCancelLogin()">취소</button>
+      </div>
+      <div id="codeMsg" class="sub" style="margin-top:8px;"></div>
+    </div>
+  </div>
+  <div class="note">여러 계정을 등록해두면, 사용 중인 계정이 <b>한도 소진·미로그인</b>이면 자동으로 다른 계정으로 전환해 글을 계속 씁니다. 로그인은 브라우저에서 진행되며 비밀번호는 이 프로그램을 거치지 않습니다. <b>(blogger·tistory·homepage 3개 프로그램이 계정을 공용 — 한 번만 로그인하면 됩니다.)</b></div>
+
+  <h3>오늘의 슬롯 (사이트 5개 · 자동 선택된 질문)</h3>
+  <table><thead><tr><th>사이트</th><th>주제(질문 열)</th><th>오늘의 질문</th><th>제목(생성 후)</th><th>used로 옮길 파일</th><th>SEO·AEO·GEO<br>점수(20)</th><th>상태</th></tr></thead><tbody id="slots"></tbody></table>
+
+  <h3>오늘 생성된 원고</h3>
+  <table><thead><tr><th>파일</th><th>미리보기 / 게시</th></tr></thead><tbody id="files"></tbody></table>
+
+  <div id="logbox"></div>
+</main>
+<script>
+let S = null;
+async function api(u, b) {
+  const r = await fetch(u, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(b||{}) });
+  const j = await r.json().catch(()=>({}));
+  if (!r.ok) alert(j.msg || '오류'); tick();
+}
+function post(pub) { if (pub && !confirm('오늘 생성된 원고를 홈페이지에 실제 공개 게시합니다. 진행할까요?')) return; api('/api/post', { isDisplay: !!pub }); }
+function genCount() { return +document.getElementById('genCount').value || 5; }
+function gen() { api('/api/generate', { count: genCount() }); }
+function genPost(pub) { if (pub && !confirm(genCount()+'건 생성 후 바로 공개 게시합니다. 진행할까요?')) return; api('/api/generate-and-post', { isDisplay: !!pub, count: genCount() }); }
+function postOne(f) { if (!confirm('이 글을 홈페이지에 공개 게시합니다. 진행할까요?')) return; api('/api/post', { file:f, isDisplay:true }); }
+// ★버튼 한 번 = AI가 새 제목을 지어 자동 교체(2026-09-07 운영자 지시). 진행·결과는 아래 로그에 표시.
+// ★원고별 다시쓰기(2026-09-21 운영자 지시): 옛 원고는 _삭제보관으로 옮기고 이 글만 새로 쓴다. 발행된 글은 거부, 실패하면 옛 원고 복원.
+function rewriteOne(fEnc, mode) {
+  // ★허브(5047)는 작성기를 다른 포트 iframe으로 띄운다 → 브라우저가 iframe의 confirm()을 막으므로 페이지 안 확인창을 직접 그린다
+  const msg = mode === 'new'
+    ? '이 원고를 버리고 <b>새 질문</b>으로 다시 씁니다.<br>옛 원고는 _삭제보관 폴더에 보관되고, 옛 질문은 나중에 다시 쓸 수 있습니다.'
+    : '이 원고를 <b>같은 질문</b>으로 다시 씁니다 — 글과 사진을 새로 만듭니다.<br>옛 원고는 _삭제보관 폴더에 보관됩니다.';
+  const old = document.getElementById('rwAsk'); if (old) old.remove();
+  const box = document.createElement('div'); box.id = 'rwAsk';
+  box.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center';
+  box.innerHTML = '<div style="background:#1e2230;color:#eee;border:1px solid #444;border-radius:10px;padding:22px 24px;max-width:460px;font-size:14px;line-height:1.7">'
+    + '<div style="font-weight:700;margin-bottom:8px">다시쓰기</div><div>' + msg + '<br><span style="opacity:.7">발행된 글은 자동으로 거부됩니다 · 몇 분 걸립니다(아래 로그 확인).</span></div>'
+    + '<div style="margin-top:16px;text-align:right"><button id="rwNo" style="padding:6px 14px;margin-right:8px">취소</button><button id="rwYes" class="primary" style="padding:6px 14px">다시쓰기 실행</button></div></div>';
+  document.body.appendChild(box);
+  document.getElementById('rwNo').onclick = () => box.remove();
+  document.getElementById('rwYes').onclick = () => { box.remove(); api('/api/rewrite', { file: decodeURIComponent(fEnc), mode }); };
+}
+function retitle(fEnc) { api('/api/retitle', { file: decodeURIComponent(fEnc) }); }
+function esc(s){ return (s||'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// ── Claude 계정 관리 (브라우저 OAuth 코드 로그인) ──
+let _loginName = '', _loginUrl = '';
+function acctSwitch(name) { api('/api/account/switch', { name }); }
+function acctTest(name) { api('/api/account/test', { name }); }
+function acctLogout(name) {
+  if (!confirm(`계정 '${name}' 로그인을 해제할까요?\n(계정 칸은 남아 다시 연동할 수 있어요)`)) return;
+  api('/api/account/logout', { name });
+}
+function acctRemove(name) {
+  if (!confirm(`계정 '${name}'을(를) 목록에서 완전히 삭제할까요?\n저장된 로그인도 지워집니다.`)) return;
+  api('/api/account/logout', { name, remove: true });
+}
+async function acctRefresh() {
+  const btn = event && event.target; if (btn) btn.textContent = '확인 중…';
+  try { await fetch('/api/account/refresh', { method:'POST' }); } catch {}
+  if (btn) btn.textContent = '🔄 상태 새로고침';
+  tick();
+}
+async function acctAdd() {
+  const name = (prompt('추가할 계정 이름(영문/숫자/한글 1~24자, 예: sub1):') || '').trim();
+  if (!name) return;
+  acctConnect(name);
+}
+// 연동 시작: 클릭 순간 빈 탭을 먼저 열고(팝업차단 방지), URL을 받으면 그 탭을 Claude 로그인/승인 페이지로 이동시킨다.
+async function acctConnect(name) {
+  let win = null; try { win = window.open('', '_blank'); } catch (e) {}
+  const msg = document.getElementById('codeMsg');
+  document.getElementById('codeBox').style.display = '';
+  document.getElementById('codeFor').textContent = '(계정: ' + name + ')';
+  msg.textContent = '준비 중… 브라우저에 Claude 로그인 페이지를 여는 중이에요.';
+  try {
+    const r = await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name }) });
+    const d = await r.json().catch(()=>({}));
+    if (d.error === 'NO_CLI') { if (win) win.close(); msg.innerHTML = '❌ claude.exe를 찾지 못했습니다.'; return; }
+    if (d.loggedIn) { if (win) win.close(); document.getElementById('codeBox').style.display='none'; alert(`이미 연동돼 있습니다 — ${d.email||''} (${d.subscriptionType||''})`); tick(); return; }
+    if (d.error) { if (win) win.close(); msg.innerHTML = '❌ ' + esc(d.error); return; }
+    _loginName = name; _loginUrl = d.url || '';
+    if (d.url) { if (win) { try { win.location.href = d.url; } catch (e) { window.open(d.url, '_blank'); } } else window.open(d.url, '_blank'); }
+    else if (win) win.close();
+    document.getElementById('authCode').focus();
+    msg.innerHTML = d.url
+      ? '🔗 열린 탭에서 <b style="color:var(--txt)">승인</b>을 누르면 <b style="color:var(--txt)">인증 코드</b>가 나옵니다. 그 코드를 복사해 위 칸에 붙여넣고 [연동 완료]를 누르세요.'
+      : '<span style="color:var(--warn)">로그인 페이지를 자동으로 못 열었어요 — [로그인 페이지 다시 열기]를 누르세요.</span>';
+  } catch (e) { if (win) win.close(); msg.textContent = '❌ ' + e.message; }
+}
+async function acctSubmitCode() {
+  const code = document.getElementById('authCode').value.trim();
+  const msg = document.getElementById('codeMsg');
+  if (!code) { msg.textContent = '로그인 후 표시된 코드를 붙여넣으세요.'; return; }
+  msg.textContent = '연동 확인 중…';
+  try {
+    const r = await fetch('/api/account/code', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: _loginName, code }) });
+    const d = await r.json().catch(()=>({}));
+    if (d.error) { msg.innerHTML = '❌ ' + (d.error === 'NO_LOGIN' ? '연동 세션이 만료됐어요. [+ 계정 추가]부터 다시 시도하세요.' : esc(d.error)); return; }
+    if (d.loggedIn) {
+      document.getElementById('codeBox').style.display = 'none';
+      document.getElementById('authCode').value = '';
+      alert(`✅ 연동 완료 — ${d.email||''} (${d.subscriptionType||''})`);
+      tick();
+    } else { msg.innerHTML = '❌ 코드가 올바르지 않거나 만료됐어요. 다시 시도하세요.'; }
+  } catch (e) { msg.textContent = '❌ ' + e.message; }
+}
+function acctReopen() { if (_loginUrl) window.open(_loginUrl, '_blank'); }
+function acctCancelLogin() { document.getElementById('codeBox').style.display = 'none'; document.getElementById('authCode').value = ''; _loginName = ''; }
+function renderAccts() {
+  const box = document.getElementById('acctlist');
+  if (!box || !S || !S.accounts) return;
+  const A = S.accounts;
+  box.innerHTML = A.accounts.map(a => {
+    const active = a.name === A.active;
+    let status;
+    if (a.loggedIn) status = `<span style="color:var(--ok)">✅ 연동됨 — <b>${esc(a.email||'Claude')}</b>${a.plan?` <span class="sub">(${esc(a.plan)})</span>`:''}</span>`;
+    else if (a.cooling) status = `<span style="color:var(--warn)">⏸ 한도 소진 — 잠시 쉬는 중</span>`;
+    else status = `<span class="sub">⚠ 미연동 — [연동] 버튼으로 로그인하세요</span>`;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line);flex-wrap:wrap">
+      <span class="pill" style="border-color:${active?'var(--ok)':'var(--line)'};color:${active?'var(--ok)':'var(--muted)'};min-width:88px;text-align:center">${active?'● ':''}${esc(a.name)}${a.isDefault?' · 홈':''}</span>
+      <span style="flex:1;min-width:200px;font-size:13px">${status}</span>
+      ${(!active && a.loggedIn)?`<button style="padding:4px 10px;font-size:12px" onclick="acctSwitch('${esc(a.name)}')">이 계정으로 전환</button>`:''}
+      ${(!a.isDefault || !a.loggedIn)?`<button style="padding:4px 10px;font-size:12px" onclick="acctConnect('${esc(a.name)}')">${a.loggedIn?'다시 연동':'연동'}</button>`:''}
+      <button style="padding:4px 10px;font-size:12px" onclick="acctTest('${esc(a.name)}')">연결 테스트</button>
+      ${(!a.isDefault && a.loggedIn)?`<button style="padding:4px 10px;font-size:12px" onclick="acctLogout('${esc(a.name)}')">로그아웃</button>`:''}
+      ${!a.isDefault?`<button style="padding:4px 10px;font-size:12px;color:var(--pt)" onclick="acctRemove('${esc(a.name)}')">삭제</button>`:''}
+    </div>`;
+  }).join('');
+}
+function esc(s){ return (s||'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+async function tick() {
+  try { S = await (await fetch('/api/state?count=' + (document.getElementById('genCount').value || 5))).json(); } catch { return; }
+  document.getElementById('p-claude').textContent = 'claude: ' + (S.claude?'OK':'없음');
+  document.getElementById('p-claude').className = 'pill ' + (S.claude?'ok':'bad');
+  document.getElementById('p-csv').textContent = S.csv&&S.csv.mtime ? '질문CSV: '+S.csv.mtime : '질문CSV: 없음';
+  document.getElementById('p-today').textContent = `오늘(${S.today} ${S.weekday}): ${S.todayFiles.length}건`;
+  document.getElementById('p-job').textContent = S.job.running ? '실행 중: '+S.job.kind : '대기';
+  document.getElementById('p-job').className = 'pill ' + (S.job.running?'bad':'ok');
+  document.querySelectorAll('button').forEach(b => b.disabled = S.job.running);
+  renderAccts();
+
+  const res = {}; (S.job.results||[]).forEach(r => { if(r.slot!=null) res[r.slot]=r; });
+  const showSet = new Set(S.show || (S.preview||[]).map(p=>p.slot));
+  document.getElementById('slots').innerHTML = (S.preview||[]).length ? (S.preview||[]).filter(p => showSet.has(p.slot)).map(p => {
+    const r = res[p.slot];
+    let st = '대기';
+    if (S.job.running && /생성/.test(S.job.kind||'') && (S.targets||[]).includes(p.slot)) st = '<span class="st run">진행</span>';
+    if (r) st = r.ok ? '<span class="st done">완료</span>' : '<span class="st fail" title="'+esc(r.reason)+'">보류</span>';
+    return `<tr><td><b>${p.slotLabel}</b></td><td>${p.topic}${p.cyclePair?'<br><span class=sub>순환:'+p.cyclePair.join('↔')+'</span>':''}</td>
+      <td>${p.question?`<span class="q">${esc(p.question)}</span><span class="sub">행 ${p.row??'-'}</span>`:'<span class=sub>(생성 전)</span>'}</td>
+      <td><span class="q">${(r&&r.ok&&r.title)?esc(r.title):(p.title?esc(p.title):'(생성 전)')}</span>${p.section?`<span class="sub">분류: ${esc(p.section)}</span>`:''}</td>
+      <td><span class="sub">${(p.usedImgs||[]).length?esc(p.usedImgs.join(", ")):'-'}</span></td>
+      <td>${(()=>{const sc=(r&&r.ok&&r.score)||p.score;return sc?`<span class="q" style="color:${sc.total>=18?'#7bd88f':'#e8a0a0'};font-weight:700">${sc.total}/20</span><span class="sub">SEO ${sc.seo}·AEO ${sc.aeo}·GEO ${sc.geo}${sc.total<18?' ⚠':''}</span>`:'<span class=sub>(생성 후)</span>';})()}</td>
+      <td>${st}${p.fname?`<br><button onclick="retitle('${encodeURIComponent(p.fname)}')" style="padding:3px 8px;font-size:11px;margin-top:4px" title="AI가 새 제목을 지어 자동 교체(본문·사진은 그대로)">제목 수정</button>
+        <button onclick="rewriteOne('${encodeURIComponent(p.fname)}','same')" style="padding:4px 10px;font-size:12px" title="같은 질문으로 글·사진을 새로 작성(옛 원고는 보관)">다시쓰기</button>
+        <button onclick="rewriteOne('${encodeURIComponent(p.fname)}','new')" style="padding:4px 10px;font-size:12px" title="다른 질문을 골라 새로 작성(옛 원고는 보관)">질문 바꿔 다시쓰기</button>`:''}</td></tr>`;
+  }).join('') : '<tr><td colspan=7 style="color:var(--muted)">오늘(일요일)은 게시 없음</td></tr>';
+
+  document.getElementById('files').innerHTML = S.todayFiles.length ? S.todayFiles.map(f =>
+    `<tr><td><span class="q">${esc(f)}</span></td><td>
+      <a href="/preview?f=${encodeURIComponent(f)}" target="_blank"><button style="padding:5px 12px;font-size:12px">미리보기</button></a>
+      <button onclick="postOne('${esc(f).replace(/'/g,"\\'")}')" style="padding:5px 12px;font-size:12px">이 글 공개 게시</button>
+    </td></tr>`).join('') : '<tr><td colspan=2 style="color:var(--muted)">아직 생성된 원고 없음</td></tr>';
+
+  const lb = document.getElementById('logbox');
+  const atEnd = lb.scrollTop + lb.clientHeight >= lb.scrollHeight - 30;
+  lb.textContent = (S.job.logs||[]).join('\n');
+  if (atEnd) lb.scrollTop = lb.scrollHeight;
+}
+tick(); setInterval(tick, 2500);
+</script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "_note": "2026-09-16 운영자 지시: 티스토리·블로그스팟 글 발행 시 ① CTA 박스의 홈페이지 링크(https://haoc.co.kr/)에 UTM 부착 ② 글 맨 아래 '공식 홈페이지 바로가기' 배너(UTM 링크) 추가. 원고 파일은 그대로, 발행 시점에만 적용. UTM: utm_source=플랫폼(tistory/blogspot), utm_medium=blog, utm_campaign=계정명, utm_content=cta_text|cta_banner, utm_term=hc추적키(제목 md5). ※ haoc.co.kr에 GA/GTM이 없으면 UTM은 기록되지 않음 — 홈페이지에 GA 설치 또는 CRM ctaTrack(/go/ 추적링크) 활성화 필요.",
+  "utm": {
+    "enabled": true,
+    "source": "",
+    "medium": "blog",
+    "campaign": "",
+    "contentText": "cta_text",
+    "contentBanner": "cta_banner",
+    "hosts": ["haoc.co.kr"]
+  },
+  "banner": {
+    "enabled": true,
+    "link": "https://haoc.co.kr/",
+    "alt": "하오커뮤니케이션 공식 홈페이지 바로가기",
+    "localFile": "assets/banner_homepage.png",
+    "driveFolderId": "1oPGR2zuWieIdNUL9DJzqrXwbRLsKClPn",
+    "hostedUrlFile": "assets/banner_hosted.json",
+    "hostedUrlMirrors": ["E:/haoc-blogger-auto/assets/banner_hosted.json", "E:/haoc-tistory-auto/assets/banner_hosted.json"],
+    "maxWidth": 886
+  }
+}

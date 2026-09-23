@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>HAOC 통합 작성기</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; }
+  body { display:flex; flex-direction:column; font-family:'Malgun Gothic', sans-serif; background:#1a1a1a; }
+  header { display:flex; align-items:center; gap:8px; padding:8px 12px; background:#1a1a1a; }
+  header .logo { color:#fff; font-weight:bold; font-size:15px; margin-right:12px; letter-spacing:1px; }
+  header .logo span { color:#e83817; }
+  .tab { padding:8px 22px; border:none; border-radius:6px 6px 0 0; cursor:pointer;
+         background:#333; color:#bbb; font-size:14px; font-weight:bold; }
+  .tab.active { background:#e83817; color:#fff; }
+  .tab:hover:not(.active) { background:#444; color:#fff; }
+  header .newtab { margin-left:auto; color:#888; font-size:12px; text-decoration:none; }
+  header .newtab:hover { color:#fff; }
+  main { flex:1; position:relative; background:#fff; }
+  iframe { position:absolute; inset:0; width:100%; height:100%; border:none; display:none; }
+  iframe.show { display:block; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">HAO<span>COMMUNICATION</span></div>
+  <button class="tab active" data-t="tistory">티스토리</button>
+  <button class="tab" data-t="blogspot">블로그스팟</button>
+  <button class="tab" data-t="homepage">홈페이지</button>
+  <a class="newtab" id="newtab" href="http://127.0.0.1:5043" target="_blank">현재 탭 새 창으로 열기 ↗</a>
+</header>
+<main>
+  <iframe id="tistory"  class="show" src="http://127.0.0.1:5043"></iframe>
+  <iframe id="blogspot" src="http://127.0.0.1:5044"></iframe>
+  <iframe id="homepage" src="http://127.0.0.1:5045"></iframe>
+</main>
+<script>
+  const urls = { tistory:'http://127.0.0.1:5043', blogspot:'http://127.0.0.1:5044', homepage:'http://127.0.0.1:5045' };
+  document.querySelectorAll('.tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('iframe').forEach(f => f.classList.remove('show'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.t).classList.add('show');
+      document.getElementById('newtab').href = urls[btn.dataset.t];
+    });
+  });
+</script>
+</body>
+</html>

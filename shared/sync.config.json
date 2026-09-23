@@ -1,0 +1,41 @@
+{
+  "_note": "두 PC 공유 상태(2026-09-23). enabled=false면 예전처럼 로컬 파일만 사용. 키는 overrides 테이블의 auto_haoc_<key>.",
+  "enabled": true,
+  "supabaseUrl": "https://oaqrjrrgntlqmyxxovfn.supabase.co",
+  "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9hcXJqcnJnbnRscW15eHhvdmZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NjQzMTUsImV4cCI6MjA5NzE0MDMxNX0.3bOfZOXVKSoI9ELfE7ZjWETuxvjpNYHdCBSIMrbAGtU",
+  "keyPrefix": "auto_haoc_",
+  "cacheMs": 1500,
+  "timeoutMs": 10000,
+  "lockTtlMs": 900000,
+  "files": [
+    {
+      "key": "used_log",
+      "path": "E:/하커_tistory_원고/_used_log.json"
+    },
+    {
+      "key": "used_images",
+      "path": "E:/하커_tistory_원고/_used_images.json"
+    },
+    {
+      "key": "rot_tistory",
+      "path": "E:/haoc-tistory-auto/_gen_rotation.json",
+      "cacheMs": 20000
+    },
+    {
+      "key": "rot_blogger",
+      "path": "E:/haoc-blogger-auto/_gen_rotation.json",
+      "cacheMs": 20000
+    },
+    {
+      "key": "rot_homepage",
+      "path": "E:/haoc-homepage-auto/_gen_rotation.json",
+      "cacheMs": 20000
+    },
+    {
+      "key": "cycle_homepage",
+      "path": "E:/haoc-homepage-auto/_cycle_state.json",
+      "cacheMs": 20000
+    }
+  ],
+  "_note_cache": "cacheMs: 화면 새로고침(2.5초마다)이 읽는 순환 파일은 20초 캐시. 사용기록은 1.5초."
+}

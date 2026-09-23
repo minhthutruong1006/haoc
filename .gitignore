@@ -1,0 +1,29 @@
+# ── 로그인·비밀 (PC마다 따로, 절대 올리지 않음) ──
+auth.json
+token.json
+chrome-profile/
+client_secret*.json
+crm-notify.config.json
+accounts.json
+shared/.machine-id
+shared/.pending/
+shared/state/
+
+# ── 설치물 ──
+node_modules/
+node_modules.zip
+
+# ── 백업·로그·임시 ──
+*.bak*
+*.log
+_backup_*/
+_backup_*
+_imgtmp/
+_삭제보관/
+_thumbtest_*
+_test_*
+categories.json
+
+# ── 실행 중 상태(Supabase가 공유 원본, 로컬은 사본) ──
+_gen_rotation.json
+_cycle_state.json
