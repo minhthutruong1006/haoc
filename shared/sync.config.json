@@ -35,6 +35,10 @@
       "key": "cycle_homepage",
       "path": "E:/haoc-homepage-auto/_cycle_state.json",
       "cacheMs": 20000
+    },
+    {
+      "key": "title_kw",
+      "path": "E:/하커_tistory_원고/_title_kw_log.json"
     }
   ],
   "_note_cache": "cacheMs: 화면 새로고침(2.5초마다)이 읽는 순환 파일은 20초 캐시. 사용기록은 1.5초."

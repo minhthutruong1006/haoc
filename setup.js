@@ -84,7 +84,7 @@ try {
   if (r.ok && r.v) ok(`Supabase 공유 기록 연결 OK (rev ${r.v._rev}, 마지막 기록 PC: ${r.v.host})`); else warn('Supabase 연결 확인 필요: ' + JSON.stringify(r).slice(0, 120));
 } catch (e) { warn('Supabase 연결 실패: ' + e.message); }
 
-console.log(`
+if (!process.env.HAOC_ONECLICK) console.log(`
 === 다음 단계 / Bước tiếp theo ===
  1. 로그인(처음 한 번):  E:\\haoc-tistory-auto\\1_티스토리_로그인.bat · 2_티스토리_카테고리가져오기.bat · 3_CLAUDE_로그인.bat
                         E:\\haoc-blogger-auto\\1_블로거_구글인증.bat · E:\\haoc-homepage-auto\\1_홈페이지_관리자로그인.bat

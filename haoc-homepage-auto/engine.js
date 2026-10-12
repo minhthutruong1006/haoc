@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync, spawn } = require('child_process');
 const ACC = require('./accounts');  // Claude 다계정 전환/페일오버(3개 프로그램 공용 저장소)
+const TKW = require('../shared/title-kw');  // ★디자인 제목 필수 키워드(2026-09-28)
 
 const CFG_FILE = path.join(__dirname, 'writer_config.json');
 function loadCfg() { return JSON.parse(fs.readFileSync(CFG_FILE, 'utf8').replace(/^﻿/, '')); }
@@ -21,7 +22,7 @@ function findClaude() {
   try {
     for (const d of fs.readdirSync(pkgRoot).filter(n => n.startsWith('Claude_'))) {
       const cc = path.join(pkgRoot, d, 'LocalCache', 'Roaming', 'Claude', 'claude-code');
-      try { const vers = fs.readdirSync(cc).filter(v => /^\d/.test(v)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true })); for (const v of vers) push(path.join(cc, v, 'claude.exe')); } catch {}
+      try { const vers = fs.readdirSync(cc).filter(v => /^\d/.test(v)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true })); for (const v of vers) { push(path.join(cc, v, 'claude.exe')); try { for (const h of fs.readdirSync(path.join(cc, v))) push(path.join(cc, v, h, 'claude.exe')); } catch {} } } catch {}
     }
   } catch {}
   return cands[0] || null;
@@ -66,7 +67,8 @@ function todaysSlots(cfg, cycle, advance) {
 // 정부지원사업 질문을 디자인/웹/마케팅 성격으로 분류(가장 먼저 나오는 키워드 기준). 어느 쪽도 아니면 '기타'.
 const SUB_KW = {
   '디자인': /카탈로그|카달로그|카다로그|브로슈어|브로셔|리플렛|리플릿|팜플렛|전단|포스터|패키지|라벨|회사소개서|제품소개서|명함|인쇄|디자인|현수막|배너|캐릭터|로고|CI|BI/i,
-  '웹': /홈페이지|쇼핑몰|자사몰|웹사이트|사이트|랜딩|리뉴얼|온라인몰|스마트스토어|입점|상세페이지|반응형|워드프레스|카페24/i,
+  // ★2026-09-29: 웹 = 홈페이지 제작. 스마트스토어·입점은 웹 차례로 분류하지 않는다(웹 토픽 excludeQuestionPatterns에서도 스마트스토어 제외)
+  '웹': /홈페이지|쇼핑몰|자사몰|웹사이트|사이트|랜딩|리뉴얼|온라인몰|상세페이지|반응형|워드프레스|카페24/i,
   '마케팅': /SNS|인스타|릴스|숏폼|유튜브|블로그|체험단|인플루언서|라이브커머스|라이브|광고|마케팅|바이어|상담회|전시회|박람회|통역|번역|콘텐츠|키워드|검색|매칭/i,
 };
 function classifySub(q) {
@@ -426,6 +428,15 @@ const PRODUCT_CATS = [
 function productCategoriesFor(text) {
   const hit = new Set();
   for (const p of PRODUCT_CATS) if (p.re.test(text || '')) p.cats.forEach(c => hit.add(c));
+  // ★2026-09-23: 촬영 폴더는 업종으로 한 번 더 좁힌다(식품 질문에 화장품·생활용품 촬영컷이 붙던 문제).
+  const SHOOT = ['제품촬영', '화장품촬영', '건강식품촬영', '식품촬영'];
+  if (SHOOT.some(c => hit.has(c))) {
+    const t = String(text || '');
+    const ind = /건강\s*식품|영양제|건기식/.test(t) ? ['건강식품촬영']
+      : /식품|음식|요리|시즐|떡|소스|음료|간식|과자|밀키트|디저트|카페|베이커리|빵|농산물|수산물|축산|반찬|김치|주류|술|메뉴|배달|식당|음식점|맛집|외식|프랜차이즈|도시락|치킨|피자|분식/.test(t) ? ['식품촬영']
+      : /화장품|코스메틱|뷰티|스킨케어|앰플|세럼/.test(t) ? ['화장품촬영'] : null;
+    if (ind) SHOOT.filter(c => !ind.includes(c)).forEach(c => hit.delete(c));
+  }
   return hit.size ? [...hit] : null;
 }
 
@@ -452,13 +463,21 @@ async function pickImages(topicCfg, cfg, usedLog, skip) {
     const subFolders = [...new Map(picked.filter(x => x.src).map(x => [x.src.id, x.src])).values()];
     return { folder: { ...f, subFolders }, images: picked };
   };
+  // ★폴더 지정 다시쓰기(2026-10-03 운영자 지시: 스튜디오 음료 글에 음료 사진): overrides.folder가 오면 그 폴더 사진만 쓴다
+  if (topicCfg._onlyFolder) {
+    const o = topicCfg._onlyFolder; if (skipSet.has(o.name)) return null;
+    let files = await driveListImagesDeep(o.id, cfg, 2);
+    if (!files.length) return null;
+    sortByMockup(files); files = rankByQuestion(files, topicCfg._q);
+    return take({ cat: o.cat || '', name: o.name || o.id, id: o.id }, files);
+  }
   let fallback = null, scanned = 0, strictScanned = 0;
   const usedSub = folderLastUse(cfg);  // 하위 폴더 사용기록(상시) — 한 번 쓴 하위 폴더는 다시 쓰지 않는다
   for (const f of folders) {
     let files = await driveListImagesDeep(f.id, cfg, 2);  // ★하위 폴더에만 이미지가 있는 프로젝트도 잡는다
     // ★하위 폴더 재사용 금지(2026-09-04): 상위 폴더는 다시 골라도, 이미 쓴 하위 폴더의 이미지는 제외
     files = files.filter(x => !x.src || (!usedSub.has(x.src.id) && !usedSub.has(x.src.name) && !used.has(x.src.id) && !used.has(x.src.name)));
-    { const _ui = new Set(loadUsedImages(cfg).map(x => x.id).filter(Boolean)); const _fresh = files.filter(x => !_ui.has(x.id)); if (_fresh.length) files = _fresh; }  // ★이미 글에 쓴 사진은 후보에서 제외(전부 썼으면 재사용) — 평면 폴더도 매번 다른 사진
+    { const _ui = new Set(loadUsedImages(cfg).map(x => x.id).filter(Boolean)); const _fresh = files.filter(x => !_ui.has(x.id)); files = _fresh.length >= 2 ? _fresh : _fresh.concat(files.filter(x => _ui.has(x.id))); }  // ★10/5: 미사용 1장뿐이면 버리지 말고 앞세워 채움(2장 미만 폴더 건너뜀 방지)  // ★이미 글에 쓴 사진은 후보에서 제외(전부 썼으면 재사용) — 평면 폴더도 매번 다른 사진
     const strict = mockupOnlyCat(cfg, f.cat);
     if (strict) {  // ★목업 강제: 목업 파일명만 후보, 없으면 이 폴더는 건너뜀(비목업 폴백 없음)
       files = files.filter(x => imageRank(x.name) === 0);
@@ -476,27 +495,35 @@ async function pickImages(topicCfg, cfg, usedLog, skip) {
   return fallback ? take(fallback.f, fallback.files) : null;
 }
 function imgUrl(id) { return `https://lh3.googleusercontent.com/d/${id}=w1200`; }
+// ★10/9: Drive가 가끔 HTML(일시 차단/쿼터 페이지)을 돌려줌 → 공유 문제로 단정하지 말고 재시도 + lh3 대체 주소로 받기
+async function driveFetchImageBuf(id) {
+  const urls = [`https://drive.google.com/uc?export=download&id=${id}`, `https://lh3.googleusercontent.com/d/${id}=w2000`];
+  let lastErr;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    for (const u of urls) {
+      try {
+        const r = await fetch(u, { redirect: 'follow', signal: AbortSignal.timeout(90000) });
+        const buf = Buffer.from(await r.arrayBuffer());
+        if (r.ok && buf.length > 1000 && buf[0] !== 0x3c) return buf;
+        lastErr = new Error(`drive 파일 접근 불가 ${id} (HTTP ${r.status})`);
+      } catch (e) { lastErr = e; }
+    }
+    if (attempt < 3) await new Promise(res => setTimeout(res, 2500 * attempt));
+  }
+  throw lastErr;
+}
 async function stageImages(images, outDir, prefix) {
   const staged = [];
   for (let i = 0; i < images.length; i++) {
     const raw = path.join(outDir, `_dl_${prefix}_${i + 1}.bin`);
     let buf;
-    for (let attempt = 1; attempt <= 3; attempt++) {  // ★일시적 네트워크(terminated 등) 재시도 — 한 장 실패로 글 전체가 죽지 않게
-      try {
-        const r = await fetch(`https://drive.google.com/uc?export=download&id=${images[i].id}`, { redirect: 'follow', signal: AbortSignal.timeout(90000) });
-        buf = Buffer.from(await r.arrayBuffer());
-        if (buf[0] === 0x3c) throw new Error('drive 파일 접근 불가 ' + images[i].id);
-        break;
-      } catch (e) {
-        if (/접근 불가/.test(e.message) || attempt === 3) throw e;
-        await new Promise(res => setTimeout(res, 800 * attempt));
-      }
-    }
+    try { buf = await driveFetchImageBuf(images[i].id); }
+    catch (e) { if (images.length > 1) { console.log('  ⚠ 사진 1장 다운로드 실패 → 건너뜀: ' + (images[i].name || images[i].id) + ' | ' + e.message); continue; } throw e; }
     fs.writeFileSync(raw, buf);
     const out = path.join(outDir, `${prefix}_${i + 1}.webp`);
     // 첫 이미지는 대표이미지(썸네일)용 JPG도 생성 — 홈페이지 크롭 서버가 webp를 거부하기 때문.
     let thumbJpg = '';
-    if (i === 0) {
+    if (staged.length === 0) {
       const tj = path.join(outDir, `${prefix}_thumb.jpg`);
       try { execSync(`ffmpeg -y -i "${raw}" -vf "scale='min(1200,iw)':-2" -q:v 3 "${tj}"`, { stdio: 'ignore' }); if (fs.existsSync(tj) && fs.statSync(tj).size > 1000) thumbJpg = tj; } catch {}
     }
@@ -555,6 +582,8 @@ ${target.question}
 
 [주제] ${subject}
 [게시일] ${td.replace(/-/g, '.')} — 프로그램이 날짜 칸에 넣는다. 본문에 날짜를 쓰지 않는다.
+
+${TKW.promptBlock(target._titleKw)}
 
 ${imageBlock}
 
@@ -652,7 +681,7 @@ async function scoreArticleSEO(html, blog, cfg, log) {
 - faq(3): FAQ 5개가 업종+상황 기반·본문 연결·질문형 어미·FAQ 스키마와 100% 일치인가
 - direct(1): 도입부가 핵심 질문에 직접적으로 답하는가
 ■ GEO
-- numbers(2): 규격·기간·수량 등 인용가치 있는 구체 수치·사실이 충분한가
+- numbers(2): 규격·기간·수량 등 인용가치 있는 구체 수치·사실이 충분한가 ★정부지원사업의 지원 한도·분담 비율은 운영 정책상 쓰지 않도록 되어 있으므로(공고마다 바뀜) 그 수치가 없다는 이유로 감점하지 말 것 — 준비 기간·수량·주기 같은 실무 수치로 판단
 - entity(2): 업종·산출물 정의가 명확하고 생성형 AI가 인용할 만한 신뢰 문장이 있는가
 - trust(2): 이모지·중복표현·금지 태그·날조된(출처 불명의 지어낸) 사실이 없는가. ★중요: 이 글은 자사 칼럼이라 (a)도입 인사말('안녕하세요, OOO입니다'), (b)작성자 바이라인('하오디자인 디자인팀 · 날짜 발행' 줄), (c)신뢰지표 블록(자사 경력·누적 실적 수치), (d)맨 아래 CTA(브랜드명·홈페이지), (e)자사 서비스·견적 페이지로 가는 내부 링크(haodesign.co.kr/sub…)에 자사 브랜드명·실적이 들어가는 것이 '정상 구성'이다 → 이 블록들의 브랜드명·실적·내부링크는 절대 감점하지 말 것. 오직 '조언 본문 문단'과 'FAQ 답변'처럼 중립적이어야 할 정보 영역에 업체명이 새어 들어갔거나, 없는 사실을 지어냈을 때만 감점한다.
 
@@ -666,11 +695,11 @@ ${metaBlock}
 [원고]
 ${body}`;
   let r = null;
-  for (let attempt = 1; attempt <= 2 && !(r && r.seo); attempt++) {  // ★파싱 실패 시 1회 재시도(간헐적 JSON 깨짐 방지)
+  for (let attempt = 1; attempt <= 2 && !(r && r.seo && r.aeo && r.geo); attempt++) {  // ★파싱 실패 시 1회 재시도(간헐적 JSON 깨짐 방지)
     try { r = parseJsonLoose(await runClaude(prompt, judgeCfg(cfg), log)); }
     catch (e) { log && log(`  ▣ SEO 채점 오류(${attempt}차, 재시도): ` + e.message.slice(0, 50)); }
   }
-  if (!r || !r.seo) { log && log('  ▣ SEO 채점 파싱 실패(무시)'); return null; }
+  if (!r || !r.seo || !r.aeo || !r.geo) { log && log('  ▣ SEO 채점 파싱 실패(무시)'); return null; }
   const c = (v, m) => Math.max(0, Math.min(m, Math.round(Number(v) || 0)));
   const bd = {
     title: c(r.seo.title, 2), keywords: c(r.seo.keywords, 2), structure: c(r.seo.structure, 2), meta: c(r.seo.meta, 1),
@@ -1029,8 +1058,34 @@ async function generateSlot(slot, slotIdx, ctx, overrides = {}) {
   const autoImg = modeCfg === 'portfolio-auto';  // ★사진 있으면 포트폴리오, 없으면 정보글(2026-09-16 운영자 지시) — 아래 portfolio 분기가 폴더 없으면 info로 넘긴다
   let mode = modeCfg === 'info' ? 'info' : modeCfg === 'auto' ? (prodCats ? 'portfolio' : 'info') : 'portfolio';
   const baseCats = (subCfg && subCfg.categories && subCfg.categories.length) ? subCfg.categories : (topicCfg.categories || []);
-  let imgTopicCfg = { ...topicCfg, categories: baseCats, ...(prodCats && !autoImg ? { categories: prodCats.filter(c => drv[c]) } : {}), _q: target.question };
+  // ★2026-09-25: 주제가 고정된 센터(스튜디오·디자인 등)는 산출물 매칭이 그 센터 사진 폴더 밖으로 나가지 못하게 한다
+  //   (스튜디오 질문의 '카탈로그'가 하오디자인 catalogue 폴더를 끌어와 스튜디오 글에 인쇄물 사진이 붙던 문제). 겹치는 폴더가 없으면 센터 기본 폴더.
+  const prodCatsImg = (prodCats && !slot.subTopic && baseCats.length) ? (prodCats.filter(c => baseCats.includes(c)).length ? prodCats.filter(c => baseCats.includes(c)) : null) : prodCats;
+  let imgTopicCfg = { ...topicCfg, categories: baseCats, ...(prodCatsImg && (!autoImg || slot.subTopic) && prodCatsImg.some(c => drv[c]) ? { categories: prodCatsImg.filter(c => drv[c]) } : {}), _q: target.question };
   if (!imgTopicCfg.categories.length) imgTopicCfg.categories = baseCats.length ? baseCats : Object.keys(drv);
+  // ★디자인 제목 필수 키워드(2026-09-28 운영자 지시): 질문에 맞는 키워드 1개를 번갈아 골라 제목에 넣고, 사진도 그 산출물 폴더에서만 고른다.
+  if (fileTopic === '디자인' || fileTopic === '스튜디오') {  // ★스튜디오 추가(2026-09-28): 촬영 키워드 + 업종 촬영/상세페이지 폴더
+    const plan = TKW.familyPlan(target.question, fileTopic);
+    let chosen = null;
+    for (const fam of plan.families) {
+      for (const cats0 of [fam.cats, ...(plan.fixed && fam.alt.length ? [fam.alt] : [])]) {
+        const cats = cats0.filter(c => drv[c]);
+        if (!cats.length) continue;
+        let probe = null; try { probe = await pickImages({ ...imgTopicCfg, categories: cats }, cfg, ctx.usedLog, []); } catch {}
+        if (probe) { chosen = { fam, cats }; break; }
+      }
+      if (chosen) break;
+    }
+    if (!chosen && plan.fixed && plan.families.length) chosen = { fam: plan.families[0], cats: null };  // 질문이 정한 산출물은 사진이 없어도 키워드는 넣는다
+    if (chosen) {
+      const kw = TKW.pickKeyword(chosen.fam, target.question);
+      TKW.commit(kw, chosen.fam.key);
+      target._titleKw = kw;
+      if (chosen.cats) { imgTopicCfg = { ...imgTopicCfg, categories: chosen.cats }; if (mode === 'info') mode = 'portfolio'; }
+      log(`  제목 필수 키워드: ${kw} | 사진 폴더: ${chosen.cats ? chosen.cats.join(', ') : '(해당 산출물 사진 없음 — 기존 매칭)'}`);
+    }
+  }
+  if (overrides.folder && overrides.folder.id) { imgTopicCfg = { ...imgTopicCfg, _onlyFolder: overrides.folder }; mode = 'portfolio'; log(`  ★사진 폴더 지정: ${overrides.folder.name || overrides.folder.id}`); }
   log(`  글 유형: ${mode === 'info' ? '정보글(사진 없음)' : '포트폴리오(참고 사진 + 대표이미지)'}${prodCats ? ' | 산출물 매칭: ' + prodCats.join(', ') : ''}`);
 
   // 참고 사진(포트폴리오형): 폴더 → 사전 눈검사 → 적합 사진만. 없으면 정보글로 전환.
@@ -1078,6 +1133,7 @@ async function generateSlot(slot, slotIdx, ctx, overrides = {}) {
     if (attempt === 2 && errs.length) prompt += `\n\n[이전 시도 문제점 — 반드시 고쳐서 다시 작성]\n- ${errs.join('\n- ')}`;
     text = assembleText(await runClaude(prompt, cfg, log), { site, topic: fileTopic, date: today().replace(/-/g, '.'), mode, thumb: thumb ? path.basename(thumb) : '' });
     errs = validate(text, staged, fileTopic, cfg);
+    if (target._titleKw && !TKW.titleHas(extractTitle(text), target._titleKw)) { if (attempt === 1) errs.push(`제목에 필수 키워드 "${target._titleKw}"가 없음 — headline에 글자 그대로 넣을 것`); else log(`  ⚠ 제목에 필수 키워드 "${target._titleKw}" 없음(2차) — 그대로 저장`); }
     if (!errs.length) break;
     log(`  검증 실패(${attempt}차): ${errs.join(' / ')}`);
   }
@@ -1102,7 +1158,7 @@ async function generateSlot(slot, slotIdx, ctx, overrides = {}) {
   ul.faqLog[faq.key] = (ul.faqLog[faq.key] || []).concat(usedFaqs.map(q => ({ q, date: today() })));
   usedFaqs.forEach(q => ctx.todaysFaqs.add(q));
   saveUsedLog(ul);
-  if (slot.cycleKey) { ctx.cycle[slot.cycleKey] = ((ctx.cycle[slot.cycleKey] || 0) + 1) % slot.cyclePair.length; saveCycle(ctx.cycle); }  // 정부지원사업 회전 진행(성공 시)
+  if (slot.cycleKey && !slot.noAdvance) { ctx.cycle[slot.cycleKey] = ((ctx.cycle[slot.cycleKey] || 0) + 1) % slot.cyclePair.length; saveCycle(ctx.cycle); }  // 정부지원사업 회전 진행(성공 시)
 
   const usedImageNames = staged.length ? [staged[0].name] : [];
   recordUsedImages(cfg, staged.length ? [staged[0]] : []);  // ★파일 단위 사용기록(대표이미지로 쓴 사진)

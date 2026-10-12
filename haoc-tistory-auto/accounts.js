@@ -19,7 +19,7 @@ const COOLDOWN_MS = 30 * 60 * 1000;   // 한도 소진 계정을 30분 쉬게 �
 const STATUS_TTL = 60 * 1000;         // auth status 캐시 60초(폴링 때 매번 프로세스 띄우지 않도록)
 
 // 로그인/한도 관련 오류 → 다른 계정으로 전환할 가치가 있는 오류. ★"You've hit your weekly limit · resets ..." 같은 실제 문구 포함.
-const SWITCH_ERR = /Not logged in|Please run \/login|login 필요|미로그인|usage limit|weekly limit|hit (your|the)[^.]*limit|limit reached|reached your (usage|weekly)|limit\s*·|resets?\s+(on|at|[A-Z][a-z]{2}\b)|rate.?limit|Credit balance|balance too low|quota|\b429\b|insufficient|out of (credit|quota)/i;
+const SWITCH_ERR = /Not logged in|OAuth session expired|Failed to authenticate|could not be refreshed|authentication_error|invalid_grant|Please run \/login|login 필요|미로그인|usage limit|weekly limit|hit (your|the)[^.]*limit|limit reached|reached your (usage|weekly)|limit\s*·|resets?\s+(on|at|[A-Z][a-z]{2}\b)|rate.?limit|Credit balance|balance too low|quota|\b429\b|insufficient|out of (credit|quota)/i;
 function isSwitchable(msg) { return SWITCH_ERR.test(String(msg || '')); }
 function extractUrl(s) { const m = (s || '').match(/https?:\/\/[^\s"'<>]+/); return m ? m[0] : ''; }
 

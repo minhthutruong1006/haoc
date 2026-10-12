@@ -27,3 +27,6 @@ categories.json
 # ── 실행 중 상태(Supabase가 공유 원본, 로컬은 사본) ──
 _gen_rotation.json
 _cycle_state.json
+
+# ── 일회용 다시쓰기 스크립트 ──
+_rw_*.js

@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync, spawn } = require('child_process');
 const ACC = require('./accounts');  // Claude 다계정 전환/페일오버(3개 프로그램 공용 저장소)
+const TKW = require('../shared/title-kw');  // ★디자인 제목 필수 키워드(2026-09-28)
 const { DRAFTS_DIR } = require('./config');
 
 const CFG_FILE = path.join(__dirname, 'writer_config.json');
@@ -26,7 +27,7 @@ function findClaude() {
       const cc = path.join(pkgRoot, d, 'LocalCache', 'Roaming', 'Claude', 'claude-code');
       try {
         const vers = fs.readdirSync(cc).filter(v => /^\d/.test(v)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
-        for (const v of vers) push(path.join(cc, v, 'claude.exe'));
+        for (const v of vers) { push(path.join(cc, v, 'claude.exe')); try { for (const h of fs.readdirSync(path.join(cc, v))) push(path.join(cc, v, h, 'claude.exe')); } catch {} }
       } catch {}
     }
   } catch {}
@@ -486,6 +487,15 @@ const PRODUCT_CATS = [
 function productCategoriesFor(text) {
   const hit = new Set();
   for (const p of PRODUCT_CATS) if (p.re.test(text || '')) p.cats.forEach(c => hit.add(c));
+  // ★2026-09-23: 촬영 폴더는 업종으로 한 번 더 좁힌다(식품 질문에 화장품·생활용품 촬영컷이 붙던 문제).
+  const SHOOT = ['제품촬영', '화장품촬영', '건강식품촬영', '식품촬영'];
+  if (SHOOT.some(c => hit.has(c))) {
+    const t = String(text || '');
+    const ind = /건강s*식품|영양제|건기식/.test(t) ? ['건강식품촬영']
+      : /식품|음식|요리|시즐|떡|소스|음료|간식|과자|밀키트|디저트|카페|베이커리|빵|농산물|수산물|축산|반찬|김치|주류|술/.test(t) ? ['식품촬영']
+      : /화장품|코스메틱|뷰티|스킨케어|앰플|세럼/.test(t) ? ['화장품촬영'] : null;
+    if (ind) SHOOT.filter(c => !ind.includes(c)).forEach(c => hit.delete(c));
+  }
   return hit.size ? [...hit] : null;
 }
 
@@ -520,7 +530,7 @@ async function pickImagesDrive(blog, cfg, usedLog, skip) {
     let files = await driveListImagesDeep(f.id, cfg, 2);  // ★하위 폴더에만 이미지가 있는 프로젝트도 잡는다
     // ★하위 폴더 재사용 금지(2026-09-04): 상위 폴더는 다시 골라도, 이미 쓴 하위 폴더의 이미지는 제외
     files = files.filter(x => !x.src || (!usedSub.has(x.src.id) && !usedSub.has(x.src.name) && !used.has(x.src.id) && !used.has(x.src.name)));
-    { const _ui = new Set(loadUsedImages(cfg).map(x => x.id).filter(Boolean)); const _fresh = files.filter(x => !_ui.has(x.id)); if (_fresh.length) files = _fresh; }  // ★이미 글에 쓴 사진은 후보에서 제외(전부 썼으면 재사용) — 평면 폴더도 매번 다른 사진
+    { const _ui = new Set(loadUsedImages(cfg).map(x => x.id).filter(Boolean)); const _fresh = files.filter(x => !_ui.has(x.id)); files = _fresh.length >= 2 ? _fresh : _fresh.concat(files.filter(x => _ui.has(x.id))); }  // ★10/5: 미사용 1장뿐이면 버리지 말고 앞세워 채움(2장 미만 폴더 건너뜀 방지)  // ★이미 글에 쓴 사진은 후보에서 제외(전부 썼으면 재사용) — 평면 폴더도 매번 다른 사진
     const strict = mockupOnlyCat(cfg, f.cat);
     if (strict) {  // ★목업 강제: 목업 파일명만 후보, 없으면 이 폴더는 건너뜀(비목업 폴백 없음)
       files = files.filter(x => imageRank(x.name) === 0);
@@ -537,30 +547,30 @@ async function pickImagesDrive(blog, cfg, usedLog, skip) {
   }
   return fallback ? take(fallback.f, fallback.files) : null;
 }
-async function driveDownload(fileId, dest) {
-  // ★일시적 네트워크 오류(fetch 'terminated'/timeout 등)로 한 장 다운로드 실패 시 글 전체가 죽던 문제 → 최대 3회 재시도.
+// ★10/9: Drive가 가끔 HTML(일시 차단/쿼터 페이지)을 돌려줌 → 공유 문제로 단정하지 말고 재시도 + lh3 대체 주소로 받기
+async function driveFetchImageBuf(id) {
+  const urls = [`https://drive.google.com/uc?export=download&id=${id}`, `https://lh3.googleusercontent.com/d/${id}=w2000`];
   let lastErr;
   for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const r = await fetch(`https://drive.google.com/uc?export=download&id=${fileId}`,
-        { redirect: 'follow', signal: AbortSignal.timeout(90000) });
-      const buf = Buffer.from(await r.arrayBuffer());
-      if (buf[0] === 0x3c) throw new Error('drive 파일 접근 불가(공유 확인) ' + fileId); // HTML 응답=권한 문제, 재시도 무의미
-      fs.writeFileSync(dest, buf);
-      return;
-    } catch (e) {
-      lastErr = e;
-      if (/접근 불가/.test(e.message)) throw e;                 // 공유 설정 문제는 재시도 안 함
-      if (attempt < 3) await new Promise(res => setTimeout(res, 800 * attempt)); // 0.8s·1.6s 백오프 후 재시도
+    for (const u of urls) {
+      try {
+        const r = await fetch(u, { redirect: 'follow', signal: AbortSignal.timeout(90000) });
+        const buf = Buffer.from(await r.arrayBuffer());
+        if (r.ok && buf.length > 1000 && buf[0] !== 0x3c) return buf;
+        lastErr = new Error(`drive 파일 접근 불가 ${id} (HTTP ${r.status})`);
+      } catch (e) { lastErr = e; }
     }
+    if (attempt < 3) await new Promise(res => setTimeout(res, 2500 * attempt));
   }
   throw lastErr;
 }
+async function driveDownload(fileId, dest) { fs.writeFileSync(dest, await driveFetchImageBuf(fileId)); }
 async function stageDriveImages(images, outDir, prefix) {
   const staged = [];
   for (let i = 0; i < images.length; i++) {
     const raw = path.join(outDir, `_dl_${prefix}_${i + 1}.bin`);
-    await driveDownload(images[i].id, raw);
+    try { await driveDownload(images[i].id, raw); }
+    catch (e) { if (images.length > 1) { console.log('  ⚠ 사진 1장 다운로드 실패 → 건너뜀: ' + (images[i].name || images[i].id) + ' | ' + e.message); continue; } throw e; }
     const out = path.join(outDir, `${prefix}_${i + 1}.webp`);
     try {
       execSync(`ffmpeg -y -i "${raw}" -vf "scale='min(1200,iw)':-2" "${out}"`, { stdio: 'ignore' });
@@ -691,6 +701,8 @@ ${target.question}
 
 [FAQ 후보 — 같은 주제의 질문 목록. 이 목록을 재료로 5개를 고르거나 발전시킨다(타겟 질문과 관련 높은 순). 어미는 존댓말 의문형(~요?)으로 다듬고 스키마도 동일 문장으로.]
 ${faqList}
+
+${TKW.promptBlock(target._titleKw)}
 
 ${imageBlock}
 
@@ -1291,6 +1303,28 @@ async function generateOne(blogNo, ctx, overrides = {}) {
     mode = probe ? 'portfolio' : 'info';
     log(probe ? `  전용 사진 폴더에 사진 있음(${probe.folder.name}) → 포트폴리오로 작성` : '  전용 사진 폴더 비어 있음(또는 미사용 폴더 없음) → 정보글로 작성');
   }
+  // ★디자인 제목 필수 키워드(2026-09-28 운영자 지시): 질문에 맞는 키워드 1개를 번갈아 골라 제목에 넣고, 사진도 그 산출물 폴더에서만 고른다.
+  if (eff.sheetBlock === '디자인' && !overrides.imageDir && overrides.mode !== 'info') {
+    const plan = TKW.familyPlan(target.question);
+    let chosen = null;
+    for (const fam of plan.families) {
+      for (const cats0 of [fam.cats, ...(plan.fixed && fam.alt.length ? [fam.alt] : [])]) {
+        const cats = cats0.filter(c => drv[c]);
+        if (!cats.length) continue;
+        let probe = null; try { probe = await pickImagesAny({ ...imgBlog, categories: cats }, cfg, ctx.usedLog, null, []); } catch {}
+        if (probe) { chosen = { fam, cats }; break; }
+      }
+      if (chosen) break;
+    }
+    if (!chosen && plan.fixed && plan.families.length) chosen = { fam: plan.families[0], cats: null };  // 질문이 정한 산출물은 사진이 없어도 키워드는 넣는다
+    if (chosen) {
+      const kw = TKW.pickKeyword(chosen.fam, target.question);
+      TKW.commit(kw, chosen.fam.key);
+      target._titleKw = kw;
+      if (chosen.cats) { imgBlog = { ...imgBlog, categories: chosen.cats }; if (mode === 'info') mode = 'portfolio'; }
+      log(`  제목 필수 키워드: ${kw} | 사진 폴더: ${chosen.cats ? chosen.cats.join(', ') : '(해당 산출물 사진 없음 — 기존 매칭)'}`);
+    }
+  }
   log(`  글 유형: ${mode === 'info' ? '정보글(사진 없음)' : '포트폴리오(사진 1장)'}${prodCats ? ' | 산출물 매칭: ' + prodCats.join(', ') : ''}`);
 
   const FOLDER_TRIES = 3;
@@ -1314,6 +1348,7 @@ async function generateOne(blogNo, ctx, overrides = {}) {
         if (fixed) { html = rewriteCategory(html, fixed); log(`  카테고리 자동 교정: "${secNow}" → "${fixed}"`); }
       }
       errs = validate(html, [], eff.topic, eff.account);
+      if (target._titleKw && !TKW.titleHas(extractTitle(html), target._titleKw)) { if (attempt === 1) errs.push(`제목에 필수 키워드 "${target._titleKw}"가 없음 — headline에 글자 그대로 넣을 것`); else log(`  ⚠ 제목에 필수 키워드 "${target._titleKw}" 없음(2차) — 그대로 저장`); }
       if (!errs.length) break;
       log(`  검증 실패(${attempt}차): ${errs.join(' / ')}`);
     }
@@ -1389,6 +1424,7 @@ async function generateOne(blogNo, ctx, overrides = {}) {
         if (fixed) { html = rewriteCategory(html, fixed); log(`  카테고리 자동 교정: "${secNow}" → "${fixed}"`); }
       }
       errs = validate(html, staged, eff.topic, eff.account);
+      if (target._titleKw && !TKW.titleHas(extractTitle(html), target._titleKw)) { if (attempt === 1) errs.push(`제목에 필수 키워드 "${target._titleKw}"가 없음 — headline에 글자 그대로 넣을 것`); else log(`  ⚠ 제목에 필수 키워드 "${target._titleKw}" 없음(2차) — 그대로 저장`); }
       if (!errs.length) break;
       log(`  검증 실패(${attempt}차): ${errs.join(' / ')}`);
     }

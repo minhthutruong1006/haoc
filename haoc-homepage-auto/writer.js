@@ -301,6 +301,14 @@ const server = http.createServer(async (req, res) => {
         const slots = E.todaysSlots(cfg, ctx.cycle, false);
         const idx = slots.findIndex(s => (s.label || s.site) === label);
         if (idx < 0) throw new Error('오늘 슬롯에서 이 사이트를 찾지 못했습니다: ' + label);
+        // ★2026-09-25: 회전 슬롯(정부지원사업)은 다시쓰기해도 옛 원고의 주제(파일명 두 번째 칸)를 그대로 쓰고 회전을 넘기지 않는다
+        //   (예전엔 다시쓰기마다 회전이 한 칸씩 넘어가 마케팅 차례 글이 디자인/웹으로 바뀌었음). b.subTopic을 주면 그 주제로.
+        if (slots[idx].cyclePair) {
+          const want = String(b.subTopic || file.split('_')[1] || '');
+          const ci = slots[idx].cyclePair.indexOf(want);
+          if (ci >= 0) slots[idx] = Object.assign({}, slots[idx], { subTopic: want, cycleIdx: ci });
+          slots[idx] = Object.assign({}, slots[idx], { noAdvance: true });
+        }
         const titles = await columnTitles(slots[idx].site);
         if (titles === null) throw new Error('홈페이지 칼럼 목록 확인 실패 — 게시 여부를 알 수 없어 다시쓰기를 중단합니다(잠시 후 다시)');
         if (title && titles.some(t => t === title)) throw new Error('이미 홈페이지에 게시된 글입니다 — 게시된 글은 다시쓰기 할 수 없습니다');
@@ -308,7 +316,7 @@ const server = http.createServer(async (req, res) => {
         const info = RW.prepare({ draftsDir: cfg.draftsDir, file, title, mode, usedLogFile: cfg.usedLog, log: jlog,
           usedKey: sk => { const t = (cfg.topics || {})[sk] || (cfg.topics || {})[slots[idx].topic]; return t ? t.no : null; } });
         let r;
-        try { r = await E.generateSlot(slots[idx], idx, ctx, mode === 'same' ? { question: info.question, row: info.row } : {}); }
+        try { r = await E.generateSlot(slots[idx], idx, ctx, Object.assign(mode === 'same' ? { question: info.question, row: info.row } : {}, b.folder && b.folder.id ? { folder: b.folder } : {})); }
         catch (e) { r = { ok: false, slot: idx, topic: slots[idx].topic, reason: e.message.slice(0, 150) }; }
         JOB.results = [r];
         if (!r.ok) { jlog(`[슬롯${idx}] 보류: ${r.reason}`); RW.restore(info, jlog); return; }

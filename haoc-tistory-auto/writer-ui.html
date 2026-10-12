@@ -148,6 +148,7 @@ async function acctAdd() {
 }
 // 연동 시작: 클릭 순간 빈 탭을 먼저 열고(팝업차단 방지), URL을 받으면 그 탭을 Claude 로그인/승인 페이지로 이동시킨다.
 async function acctConnect(name) {
+  _loginName = name; _loginUrl = '';
   let win = null; try { win = window.open('', '_blank'); } catch (e) {}
   const msg = document.getElementById('codeMsg');
   document.getElementById('codeBox').style.display = '';
@@ -185,7 +186,7 @@ async function acctSubmitCode() {
     } else { msg.innerHTML = '❌ 코드가 올바르지 않거나 만료됐어요. 다시 시도하세요.'; }
   } catch (e) { msg.textContent = '❌ ' + e.message; }
 }
-function acctReopen() { if (_loginUrl) window.open(_loginUrl, '_blank'); }
+function acctReopen() { if (_loginUrl) window.open(_loginUrl, '_blank'); else if (_loginName) acctConnect(_loginName); }
 function acctCancelLogin() { document.getElementById('codeBox').style.display = 'none'; document.getElementById('authCode').value = ''; _loginName = ''; }
 function renderAccts() {
   const box = document.getElementById('acctlist');
